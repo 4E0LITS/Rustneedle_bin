@@ -8,7 +8,9 @@ use librustneedle::{
     Hook,
     HostMgr,
     Framework,
-    Module
+    Module,
+    PQueueOpt,
+    PFilterOpt
 };
 
 pub fn load_into(mgr: &mut Framework) -> Result<(), ()> {
@@ -31,7 +33,7 @@ pub fn load_into(mgr: &mut Framework) -> Result<(), ()> {
     Ok(())
 }
 
-type HookRet = Result<Option<Module>, String>;
+type HookRet = Result<Option<(Module, PQueueOpt, PFilterOpt)>, String>;
 
 /*
 Framework level core hook definitions

@@ -1,27 +1,29 @@
 use std::env::args;
-use std::process::exit;
+use std::thread::spawn;
 use std::fs::read_dir;
-
+use std::process::exit;
+use std::net::IpAddr;
 use std::sync::{
     Arc,
-    Mutex
+    Mutex,
+    mpsc::channel
 };
-use std::net::IpAddr;
 
 mod core;
+mod control;
+mod proc;
+use proc::{
+    get_arp_entry,
+    get_gateway
+};
 
 extern crate librustneedle;
 use librustneedle::{
     DLINKCFG,
     HostMgr,
     KnownPair,
-    Framework
-};
-
-mod proc;
-use proc::{
-    get_arp_entry,
-    get_gateway
+    Framework,
+    Module
 };
 
 extern crate libloading;
@@ -36,7 +38,10 @@ use pnet::datalink::{
     DataLinkSender
 };
 
-use std::io::stdin;
+use std::io::{
+    stdin,
+    Read
+};
 
 const PLUGINS: &str = include!(concat!(env!("OUT_DIR"), "/plugin_dir"));
 
@@ -58,8 +63,38 @@ fn main() {
     });
 }
 
-fn run(instance: Framework, channel_sender: Box<DataLinkSender>, channel_recver: Box<DataLinkReceiver>) -> i32 {
+fn run(mut instance: Framework, channel_sender: Box<DataLinkSender>, channel_recver: Box<DataLinkReceiver>) -> i32 {
+    /*
+    begin tasks for datalink packet handling... when new modules are spawned, pass packsenders and recvers
+    to tasks as appropriate
+    */
+    let (recv_moddrop, recv_modqueue) = channel();
+    let (send_moddrop, send_modqueue) = channel();
 
+    let recv_handle = spawn(move || control::dlink_recv(channel_recver, recv_modqueue));
+    let send_handle = spawn(move || control::dlink_send(channel_sender, send_modqueue));
+
+    loop {
+        let mut buf = String::new();
+        stdin().read_line(&mut buf).unwrap();
+        let words: Vec<&str> = buf.trim().split(" ").collect();
+
+        // if hook resulted in new module, drop new info to tasks
+        match instance.try_run_hook(words[0], &words[1..]) {
+            Ok(result) => if let Some((pqueopt, pfilopt)) = result {
+                if let Some(pque) = pqueopt {
+                    send_moddrop.send(pque).unwrap();
+                }
+
+                if let Some(pfil) = pfilopt {
+                    recv_moddrop.send(pfil).unwrap();
+                }
+            },
+
+            Err(e) => println!("[!] {}", e)
+        };
+        
+    }
 
     0
 }
