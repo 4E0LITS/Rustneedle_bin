@@ -3,11 +3,7 @@ use std::thread::spawn;
 use std::fs::read_dir;
 use std::process::exit;
 use std::net::IpAddr;
-use std::sync::{
-    Arc,
-    Mutex,
-    mpsc::channel
-};
+use std::sync::mpsc::channel;
 
 mod core;
 mod control;
@@ -23,7 +19,6 @@ use librustneedle::{
     HostMgr,
     KnownPair,
     Framework,
-    Module
 };
 
 extern crate libloading;
@@ -38,10 +33,7 @@ use pnet::datalink::{
     DataLinkSender
 };
 
-use std::io::{
-    stdin,
-    Read
-};
+use std::io::stdin;
 
 const PLUGINS: &str = include!(concat!(env!("OUT_DIR"), "/plugin_dir"));
 
@@ -65,35 +57,34 @@ fn main() {
 
 fn run(mut instance: Framework, channel_sender: Box<DataLinkSender>, channel_recver: Box<DataLinkReceiver>) -> i32 {
     /*
-    begin tasks for datalink packet handling... when new modules are spawned, pass packsenders and recvers
-    to tasks as appropriate
+    begin tasks for datalink packet handling, then run hooks ask passed from cmdline.
+    when new modules are spawned, pass packsenders and recvers to tasks as appropriate
     */
     let (recv_moddrop, recv_modqueue) = channel();
-    let (send_moddrop, send_modqueue) = channel();
+    let (packet_sender, packet_recver) = channel();
+    let (recv_killer, recv_killrx) = channel();
+    let (send_killer, send_killrx) = channel();
 
-    let recv_handle = spawn(move || control::dlink_recv(channel_recver, recv_modqueue));
-    let send_handle = spawn(move || control::dlink_send(channel_sender, send_modqueue));
+    let recv_handle = spawn(move || control::dlink_recv(channel_recver, recv_modqueue, recv_killrx));
+    let send_handle = spawn(move || control::dlink_send(channel_sender, packet_recver, send_killrx));
+
+    instance.init_task_mpscs(recv_moddrop, packet_sender);
 
     loop {
         let mut buf = String::new();
         stdin().read_line(&mut buf).unwrap();
         let words: Vec<&str> = buf.trim().split(" ").collect();
 
+        if !instance.is_running() {
+            break;
+        }
+
         // if hook resulted in new module, drop new info to tasks
         match instance.try_run_hook(words[0], &words[1..]) {
-            Ok(result) => if let Some((pqueopt, pfilopt)) = result {
-                if let Some(pque) = pqueopt {
-                    send_moddrop.send(pque).unwrap();
-                }
-
-                if let Some(pfil) = pfilopt {
-                    recv_moddrop.send(pfil).unwrap();
-                }
-            },
+            Ok(_) => (),
 
             Err(e) => println!("[!] {}", e)
         };
-        
     }
 
     0

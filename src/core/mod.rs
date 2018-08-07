@@ -16,8 +16,11 @@ use librustneedle::{
 pub fn load_into(mgr: &mut Framework) -> Result<(), ()> {
     let core_hooks = vec![
         // framework level
+        ("", Hook::Framework(_noinput)),
+        ("exit", Hook::Framework(exit)),
+        ("kill", Hook::Framework(kill)),
         ("modules", Hook::Framework(modules)),
-        ("hooks", Hook::Framework(hooks)),
+        ("help", Hook::Framework(help)),
         
         // hostmgr level
         ("list", Hook::HostMgr(list)),
@@ -33,13 +36,36 @@ pub fn load_into(mgr: &mut Framework) -> Result<(), ()> {
     Ok(())
 }
 
-type HookRet = Result<Option<(Module, PQueueOpt, PFilterOpt)>, String>;
+type HookRet = Result<Option<Module>, String>;
 
 /*
 Framework level core hook definitions
 */
 
-fn modules(args: &[&str], fwk: &Framework) -> HookRet {
+fn _noinput(_args: &[&str], _fwk: &mut Framework) -> HookRet {
+    Ok(None)
+}
+
+fn exit(_args: &[&str], fwk: &mut Framework) -> HookRet {
+    fwk.stop();
+    Ok(None)
+}
+
+fn kill(args: &[&str], fwk: &mut Framework) -> HookRet {
+   for name in args.into_iter() {
+       match fwk.try_kill(name) {
+           Ok(result) => if let Err(e) = result {
+               println!("[!] {}", e)
+           },
+
+           Err(e) => println!("[!] {}", e)
+       };
+   }
+
+    Ok((None))
+}
+
+fn modules(args: &[&str], fwk: &mut Framework) -> HookRet {
     if args.len() > 0 {
         println!("[$] args ignored");
     }
@@ -50,20 +76,18 @@ fn modules(args: &[&str], fwk: &Framework) -> HookRet {
         println!(" * {}", name);
     }
 
-    println!("");
     Ok(None)
 }
 
-fn hooks(args: &[&str], fwk: &Framework) -> HookRet {
+fn help(args: &[&str], fwk: &mut Framework) -> HookRet {
     if args.len() > 0 {
         println!("[$] args ignored");
     }
 
-    for name in fwk.hooks().keys() {
+    for name in fwk.hooks().keys().filter(|_n| _n.len() > 0 ) {
         println!(" * {}", name);
     }
 
-    println!("");
     Ok(None)
 }
 
@@ -110,6 +134,5 @@ fn list(args: &[&str], mgr: &mut HostMgr) -> HookRet {
         }
     }
 
-    println!("");
     Ok(None)
 }
