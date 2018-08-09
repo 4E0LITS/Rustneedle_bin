@@ -87,6 +87,13 @@ fn run(mut instance: Framework, channel_sender: Box<DataLinkSender>, channel_rec
         };
     }
 
+    // clean up and exit. TODO gen exit code from results
+    recv_killer.send(()).unwrap();
+    send_killer.send(()).unwrap();
+    let _ = recv_handle.join();
+    let _ = send_handle.join();
+
+
     0
 }
 
